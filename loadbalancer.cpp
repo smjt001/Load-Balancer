@@ -13,14 +13,19 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <netdb.h>
+#include <chrono>
+#include <thread>
+
 using namespace std;
 
 #define MAX_LEN 256
 #define BACKLOG 10
 #define SERVER_NAME_LEN_MAX 255
 #define PORT 6000
+#define HEARTBEAT_INTERVAL 5 // seconds
 vector<int> SERVERPORTS;
 map<string, int> roomServerDict;
+map<int, bool> serverStatus; // Tracks server health (true = up, false = down)
 int clientNumber = 0;
 
 struct socket_client_thread
@@ -31,6 +36,8 @@ struct socket_client_thread
 
 void *balance_load(void *arg);
 void signal_handler(int signal_number);
+void *health_check(void *arg);
+bool pingServer(int serverPort);
 
 int main()
 {
@@ -44,7 +51,17 @@ int main()
     while (totalServers--)
     {
         SERVERPORTS.push_back(serverport++);
+        serverStatus[serverport - 1] = true; // Initially set all servers as healthy
     }
+
+    // Start the health check thread
+    pthread_t healthCheckThread;
+    if (pthread_create(&healthCheckThread, NULL, health_check, NULL) != 0)
+    {
+        perror("Error creating health check thread");
+        exit(1);
+    }
+
     struct sockaddr_in address;
     pthread_attr_t pthread_attr;
     socket_client_thread *pthread_arg;
@@ -184,14 +201,24 @@ void *balance_load(void *arg)
         vector<int> loads(SERVERPORTS.size());
         for (int idx = 0; idx < loads.size(); idx++)
         {
-            loads[idx] = getLoadServer(idx);
-            if (loads[idx] < 0)
-            {
-                loads[idx] = INT_MAX;
-                cout << "Server " << idx + 1 << " : " << "Not Responding" << "\n";
+            if (serverStatus[SERVERPORTS[idx]])
+            { // Check if the server is healthy
+                loads[idx] = getLoadServer(idx);
+                if (loads[idx] < 0)
+                {
+                    loads[idx] = INT_MAX;
+                    cout << "Server " << idx + 1 << " : " << "Not Responding" << "\n";
+                }
+                else
+                {
+                    cout << "Server " << idx + 1 << " : " << loads[idx] << "\n";
+                }
             }
             else
-                cout << "Server " << idx + 1 << " : " << loads[idx] << "\n";
+            {
+                loads[idx] = INT_MAX;
+                cout << "Server " << idx + 1 << " : " << "Down" << "\n";
+            }
         }
         cout << "\n";
         int optimalServerPort = SERVERPORTS[min_element(loads.begin(), loads.end()) - loads.begin()];
@@ -203,6 +230,47 @@ void *balance_load(void *arg)
     close(server_socket);
 
     return NULL;
+}
+
+void *health_check(void *arg)
+{
+    while (true)
+    {
+        for (int i = 0; i < SERVERPORTS.size(); ++i)
+        {
+            int serverPort = SERVERPORTS[i];
+            bool isHealthy = pingServer(serverPort);
+            serverStatus[serverPort] = isHealthy;
+            if (isHealthy)
+            {
+                cout << "Server " << serverPort << " is up.\n";
+            }
+            else
+            {
+                cout << "Server " << serverPort << " is down.\n";
+            }
+        }
+        this_thread::sleep_for(chrono::seconds(HEARTBEAT_INTERVAL)); // Wait before next health check
+    }
+    return NULL;
+}
+
+bool pingServer(int serverPort)
+{
+    char server_name[SERVER_NAME_LEN_MAX + 1] = "127.0.0.1\0";
+    int socket_id;
+    struct hostent *server_host;
+    struct sockaddr_in server_address;
+    server_host = gethostbyname("localhost");
+    memset(&server_address, 0, sizeof server_address);
+    server_address.sin_family = AF_INET;
+    server_address.sin_port = htons(serverPort);
+    memcpy(&server_address.sin_addr.s_addr, server_host->h_addr, server_host->h_length);
+
+    socket_id = socket(AF_INET, SOCK_STREAM, 0);
+    int result = connect(socket_id, (struct sockaddr *)&server_address, sizeof server_address);
+    close(socket_id);
+    return result == 0; // If connect is successful, the server is up
 }
 
 void signal_handler(int signal_number)
