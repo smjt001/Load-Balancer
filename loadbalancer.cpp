@@ -15,6 +15,7 @@
 #include <netdb.h>
 #include <chrono>
 #include <thread>
+#include <fstream>
 
 using namespace std;
 
@@ -34,6 +35,7 @@ struct socket_client_thread
     struct sockaddr_in client_address;
 };
 
+void logMessage(const string &message);
 void *balance_load(void *arg);
 void signal_handler(int signal_number);
 void *health_check(void *arg);
@@ -147,6 +149,20 @@ int main()
     return 0;
 }
 
+void logMessage(const string &message)
+{
+    ofstream logFile("chat_log.txt", ios::app);
+    if (logFile.is_open())
+    {
+        logFile << message << endl;
+        logFile.close();
+    }
+    else
+    {
+        cerr << "Unable to open log file!" << endl;
+    }
+}
+
 int getLoadServer(int idx)
 {
     char server_name[SERVER_NAME_LEN_MAX + 1] = "127.0.0.1\0";
@@ -188,6 +204,11 @@ void *balance_load(void *arg)
     recv(server_socket, name, sizeof(name), 0);
     recv(server_socket, room, sizeof(room), 0);
     cout << "Client (" << name << ") connected.\n";
+
+    // Log client request to WAL file
+    string logMessageStr = "Client (" + string(name) + ") requested room: " + string(room);
+    logMessage(logMessageStr); // Logging the client request
+
     if (roomServerDict.find(string(room)) != roomServerDict.end())
     {
         cout << "Directing client to server for room no. " << string(room) << "\n";
@@ -201,8 +222,8 @@ void *balance_load(void *arg)
         vector<int> loads(SERVERPORTS.size());
         for (int idx = 0; idx < loads.size(); idx++)
         {
-            if (serverStatus[SERVERPORTS[idx]])
-            { // Check if the server is healthy
+            if (serverStatus[SERVERPORTS[idx]]) // Check if the server is healthy
+            {
                 loads[idx] = getLoadServer(idx);
                 if (loads[idx] < 0)
                 {
