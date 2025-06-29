@@ -75,7 +75,7 @@ int main(int argc, char *argv[])
         if ((client_socket = accept(server_socket, (struct sockaddr *)&client, &len)) == -1)
         {
             perror("Accept error: ");
-            exit(-1);
+            continue;
         }
         client_index_count++;
         thread connection_thread(handle_client_connection, client_socket, client_index_count);
@@ -139,14 +139,15 @@ int broadcast_to_clients(int num, int sender_id, string sender_room)
 
 void end_connection(int id, string room)
 {
+    lock_guard<mutex> guard(clients_mutex);
     for (int i = 0; i < clients.size(); i++)
     {
         if (clients[i].client_id == id && clients[i].client_room == room)
         {
-            lock_guard<mutex> guard(clients_mutex);
-            clients[i].client_thread.detach();
-            clients.erase(clients.begin() + i);
+            if (clients[i].client_thread.joinable())
+                clients[i].client_thread.detach();
             close(clients[i].client_socket);
+            clients.erase(clients.begin() + i);
             break;
         }
     }
@@ -155,17 +156,33 @@ void end_connection(int id, string room)
 void handle_client_connection(int client_socket, int id)
 {
     char name[MAX_LEN], room[MAX_LEN], str[MAX_LEN];
-    recv(client_socket, name, sizeof(name), 0);
-    recv(client_socket, room, sizeof(room), 0);
-    set_Client(id, name, room);
+    if (recv(client_socket, name, sizeof(name), 0) <= 0) {
+        close(client_socket);
+        return;
+    }
+    if (recv(client_socket, room, sizeof(room), 0) <= 0) {
+        close(client_socket);
+        return;
+    }
+
+    // Handle healthcheck ping client separately
+    if (strcmp(name, "__HealthCheck__") == 0 && strcmp(room, "__ping__") == 0)
+    {
+        close(client_socket);
+        return;
+    }
     if (strcmp(name, "__LoadBalancer__") == 0 && strcmp(room, "__getLoad?__") == 0)
     {
         int noOfClients = clients.size() - 1;
         send(client_socket, &noOfClients, sizeof(noOfClients), 0);
         cout << "Load on this server: " << noOfClients << "\n";
+        close(client_socket);
+        end_connection(id, room);
+        return;
     }
     else
     {
+        set_Client(id, name, room);
         string initial_message = string(name) + string(" has joined Room: ");
         broadcast_to_clients("#NULL", id, room);
         broadcast_to_clients(id, id, room);

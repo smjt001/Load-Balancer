@@ -135,7 +135,9 @@ void send_message_to_server(int client_socket)
         cout << colors[1] << "You : " << default_colour;
         char str[MAX_LEN];
         cin.getline(str, MAX_LEN);
-        send(client_socket, str, sizeof(str), 0);
+        if (send(client_socket, str, strlen(str) + 1, 0) == -1) {
+            perror("send: ");
+        }
         if (strcmp(str, "#exit") == 0)
         {
             exit_flag = true;

@@ -23,7 +23,7 @@ using namespace std;
 #define BACKLOG 10
 #define SERVER_NAME_LEN_MAX 255
 #define PORT 6000
-#define HEARTBEAT_INTERVAL 5 // seconds
+#define HEARTBEAT_INTERVAL 30 // seconds
 vector<int> SERVERPORTS;
 map<string, int> roomServerDict;
 map<int, bool> serverStatus; // Tracks server health (true = up, false = down)
@@ -247,7 +247,7 @@ void *balance_load(void *arg)
         roomServerDict[string(room)] = optimalServerPort;
     }
 
-    cout << "Client (" << name << ") disconnected.\n";
+    cout << "Client (" << name << ") matched to Server: "<< roomServerDict[string(room)] << "\n";
     close(server_socket);
 
     return NULL;
@@ -290,6 +290,13 @@ bool pingServer(int serverPort)
 
     socket_id = socket(AF_INET, SOCK_STREAM, 0);
     int result = connect(socket_id, (struct sockaddr *)&server_address, sizeof server_address);
+    if (result == 0) {
+        // Send special health check message to distinguish from client
+        char name[MAX_LEN] = "__HealthCheck__";
+        char room[MAX_LEN] = "__ping__";
+        send(socket_id, name, sizeof(name), 0);
+        send(socket_id, room, sizeof(room), 0);
+    }
     close(socket_id);
     return result == 0; // If connect is successful, the server is up
 }
