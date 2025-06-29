@@ -1,20 +1,21 @@
-
 CXX = g++
 CXXFLAGS = -Wall -Wextra -std=c++17 -O2
 
-TARGET = program
-SRCS = $(wildcard *.cpp)
-OBJS = $(SRCS:.cpp=.o)
+all: client server loadbalancer pinginfo
 
-all: $(TARGET)
+client: client.cpp
+	$(CXX) $(CXXFLAGS) client.cpp -o client
 
-$(TARGET): $(OBJS)
-	$(CXX) $(OBJS) -o $(TARGET)
+server: server.cpp
+	$(CXX) $(CXXFLAGS) server.cpp -o server
 
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+loadbalancer: loadbalancer.cpp
+	$(CXX) $(CXXFLAGS) loadbalancer.cpp -o loadbalancer
+
+pinginfo: pinginfo.cpp
+	$(CXX) $(CXXFLAGS) pinginfo.cpp -o pinginfo
 
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -f client server loadbalancer pinginfo *.o
 
 .PHONY: all clean
